@@ -26,22 +26,6 @@ def collator(batch):
   global tokenizer
   return auxiliars.collate_batch(batch, ['premise_ids', 'hypothesis_ids'], tokenizer)
 
-class SBETO(nn.Module):
-    def __init__(self, base_model):
-        super().__init__()
-        self.base_model = base_model
-        self.fc = nn.Linear(768 * 3, 3)
-
-    def forward(self, sentenceA, sentenceB, att_A, att_B):
-        last_hidden_state_A = self.base_model(sentenceA)[0]
-        last_hidden_state_B = self.base_model(sentenceB)[0]
-        pooled_output_A = torch.mean(torch.matmul(att_A, last_hidden_state_A), dim=1)
-        pooled_output_B = torch.mean(torch.matmul(att_B, last_hidden_state_B), dim=1)
-        diff = torch.abs(pooled_output_A - pooled_output_B)
-        concatenated = torch.cat([pooled_output_A, pooled_output_B, diff], dim=1)
-        out = self.fc(concatenated)
-        return out
-
 
 def validate(model, dataloader, val_dataloader, optimizer, device):
     sum_loss = .0
@@ -100,7 +84,7 @@ def _inner_train(model, train_dataloader, val_dataloader, num_epochs, step, lr, 
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-  model = SBETO(model)
+  model = auxiliars.SBETOnli(model)
   model = model.to(device)
   num_training_steps = len(train_dataloader)
 
