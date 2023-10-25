@@ -1,8 +1,7 @@
-from datasets import load_from_disk
+import auxiliars
 from transformers import AutoTokenizer, AutoModel
 import torch
 from torch.utils.data import DataLoader, RandomSampler
-from torch.nn.utils.rnn import pad_sequence
 import torch.nn as nn
 from sklearn.metrics import classification_report
 from tqdm.auto import tqdm
@@ -12,6 +11,8 @@ import os
 import argparse
 import sys
 import logging
+from torch.utils.tensorboard import SummaryWriter
+from huggingface_hub import login
 
 
 logger = logging.getLogger(__name__)
@@ -19,55 +20,11 @@ logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-
-def tokenize(batch, tokenize_columun):
-    """
-    """
-    tok = tokenizer(batch[tokenize_columun], truncation=True, padding=False)
-    tok[f'{tokenize_columun}_ids'] = tok["input_ids"]
-    return tok
-
-
-def load_and_tokenize_dataset(
-    data_dir
-):
-
-    dataset = load_from_disk(data_dir)
-    tokenized_dataset = dataset.map(
-        tokenize,
-        fn_kwargs={'tokenize_columun':'premise'},
-        batched=True,
-        remove_columns=['premise']
-    )
-    tokenized_dataset = tokenized_dataset.map(
-        tokenize,
-        fn_kwargs={'tokenize_columun':'hypothesis'},
-        batched=True,
-        remove_columns=['hypothesis']
-    )
-
-    return tokenized_dataset
-
-
-def generate_attention_mask(tensor):
-    global tokenizer
-    attention_mask = (tensor != tokenizer.pad_token_id).float()
-    return attention_mask
-
-
-def collate_batch(batch):
-    premise      = [torch.LongTensor(record['premise_ids'])\
-                                              for record in batch]
-    hypotesis = [torch.LongTensor(record['hypothesis_ids'])\
-                                                for record in batch]
-    prem_ids   = pad_sequence(premise, batch_first=True, padding_value=tokenizer.pad_token_id)
-    hypo_ids   = pad_sequence(hypotesis, batch_first=True, padding_value=tokenizer.pad_token_id)
-    #att masks
-    prems_att_mask = generate_attention_mask(prem_ids)
-    hypo_att_mask = generate_attention_mask(hypo_ids)
-
-    return prem_ids, hypo_ids, torch.LongTensor([record['label'] for record in batch]), prems_att_mask, hypo_att_mask
-
+def collator(batch):
+  """
+  """
+  global tokenizer
+  return auxiliars.collate_batch(batch, ['premise_ids', 'hypothesis_ids'], tokenizer)
 
 class SBETO(nn.Module):
     def __init__(self, base_model):
@@ -127,58 +84,72 @@ def validate(model, dataloader, val_dataloader, optimizer, device):
 
 
 
-def validation_step(model, dataloader, device, step, val_dataloader, optimizer):
+def validation_step(model, dataloader, device, step, val_dataloader, optimizer, writer):
     dev_results = validate(model, dataloader, val_dataloader, optimizer, device)
     dev=dev_results
+    for key in ["0", "1", "2"]:
+        writer.add_scalar("dev/" + key+ " Macro F1", dev_results[key]["f1-score"], global_step=step)
+    writer.add_scalar("dev/macro_f1", dev_results['macro avg']["f1-score"], global_step=step)
+    writer.add_scalar("dev/loss", dev_results["loss"], global_step=step)
+    writer.add_scalar("dev/accuracy", dev_results["accuracy"], global_step=step)
 
 
-def _inner_train(model, train_dataloader, val_dataloader, num_epochs=1, step=0, lr=2e-5):
-    """
-    """
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def _inner_train(model, train_dataloader, val_dataloader, num_epochs, step, lr, writer):
+  """
+  """
+  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-    model = SBETO(model)
-    model = model.to(device)
-    num_training_steps = len(train_dataloader)
+  model = SBETO(model)
+  model = model.to(device)
+  num_training_steps = len(train_dataloader)
 
 
-    optimizer = AdamW(model.parameters(), lr=lr)
-    scheduler = get_scheduler(
-        "linear",
-        optimizer=optimizer,
-        num_warmup_steps = num_training_steps // 10, num_training_steps=num_training_steps,)
+  optimizer = AdamW(model.parameters(), lr=lr)
+  scheduler = get_scheduler(
+      "linear",
+      optimizer=optimizer,
+      num_warmup_steps = num_training_steps // 10, num_training_steps=num_training_steps,)
 
 
-    for epoch in range(num_epochs):
-        model.train()
-        print('*'*10 + str(epoch) + '*'*10)
-        for batch in tqdm(train_dataloader):
-            batch_prem, batch_hypo, batch_labels, batch_prem_att, batch_hypo_att = batch
-            batch_prem = batch_prem.to(device)
-            batch_hypo = batch_hypo.to(device)
-            batch_prem_att = batch_prem_att.to(device)
-            batch_hypo_att = batch_hypo_att.to(device)
-            batch_labels = batch_labels.to(device)
-            optimizer.zero_grad()
-            preds = model(batch_prem, batch_hypo, batch_prem_att, batch_hypo_att)
-            loss = nn.functional.cross_entropy(
-                      preds,
-                      batch_labels.view(-1)
-                  )
+  for epoch in range(num_epochs):
+      model.train()
+      print('*'*10 + str(epoch) + '*'*10)
+      for batch in tqdm(train_dataloader):
+          batch_prem, batch_hypo, batch_labels, batch_prem_att, batch_hypo_att = batch
+          batch_prem = batch_prem.to(device)
+          batch_hypo = batch_hypo.to(device)
+          batch_prem_att = batch_prem_att.to(device)
+          batch_hypo_att = batch_hypo_att.to(device)
+          batch_labels = batch_labels.to(device)
+          optimizer.zero_grad()
+          preds = model(batch_prem, batch_hypo, batch_prem_att, batch_hypo_att)
+          loss = nn.functional.cross_entropy(
+                    preds,
+                    batch_labels.view(-1)
+                )
 
-            loss.backward()
-            optimizer.step()
+          loss.backward()
+          optimizer.step()
 
-            scheduler.step()
-            current_lr = scheduler.get_last_lr()[0]
+          scheduler.step()
+          current_lr = scheduler.get_last_lr()[0]
 
-            step += 1
+          writer.add_scalar('train/loss', loss, global_step=step)
+          writer.add_scalar('train/lr', current_lr, global_step=step)
 
-        validation_step(model, val_dataloader, device, step, val_dataloader, optimizer)
+          step += 1
+
+      validation_step(model, val_dataloader, device, step, val_dataloader, optimizer, writer)
+  return model
+
+def save_model(model, hf_save_path):
+  model.base_model.push_to_hub(hf_save_path)
 
 
 def train(args):
+    logger.info("Login into HF...\n")
+    login(args.hf_token)
     logger.info("Loading tokenizer...\n")
     global tokenizer
     global model_name
@@ -189,13 +160,18 @@ def train(args):
     logger.info("Pretrained model loaded\n")
 
     logger.info("Fetching and tokenizing data for training")
-    train_dataset = load_and_tokenize_dataset(
-        args.train_data_dir
+    tokenize_columns = ['premise','hypothesis']
+    train_dataset = auxiliars.load_and_tokenize_dataset(
+        args.train_data_dir,
+        tokenize_columns,
+        tokenizer
     )
     logger.info("Tokenizing data for training loaded\n")
     logger.info("Fetching and tokenizing data for eval")
-    eval_dataset = load_and_tokenize_dataset(
-        args.val_data_dir
+    eval_dataset = auxiliars.load_and_tokenize_dataset(
+        args.val_data_dir,
+        tokenize_columns,
+        tokenizer
     )
     logger.info("Tokenizing data for eval loaded\n")
     # logger.info("Fetching and tokenizing data for test")
@@ -205,15 +181,20 @@ def train(args):
     logger.info("Tokenizing data for test loaded\n")
 
     logger.info("Collating and padding")
-    train_dataloader = DataLoader(train_dataset, batch_size=args.train_batch_size, collate_fn=collate_batch, shuffle=True)
-    val_dataloader = DataLoader(eval_dataset, batch_size=args.eval_batch_size, collate_fn=collate_batch, shuffle=True)
-    # test_dataloader = DataLoader(test_dataset, batch_size=args.eval_batch_size, collate_fn=collate_batch, shuffle=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.train_batch_size, collate_fn=collator, shuffle=True)
+    val_dataloader = DataLoader(eval_dataset, batch_size=args.eval_batch_size, collate_fn=collator, shuffle=True)
+    # test_dataloader = DataLoader(test_dataset, batch_size=args.eval_batch_size, collate_fn=collate_columns, shuffle=True)
     logger.info("Collating and padding finished\n")
 
 
     logger.info("Starting training")
-    _inner_train(model, train_dataloader, val_dataloader, num_epochs=args.epochs, step=args.step, lr=args.lr)
+    writer = SummaryWriter("logs")
+    model = _inner_train(model, train_dataloader, val_dataloader, num_epochs=args.epochs, step=args.step, lr=args.lr, writer=writer)
     logger.info("Model trained successfully")
+    logger.info("Pushing into HF")
+    save_model(model, args.hf_save_path)
+    logger.info("Pushed successfully")
+    
 
 
 
@@ -222,6 +203,8 @@ if __name__ == '__main__':
     parser.add_argument("--model-name", type=str)
     parser.add_argument("--train-data-dir", type=str)
     parser.add_argument("--val-data-dir", type=str)
+    parser.add_argument("--hf-token", type=str)
+    parser.add_argument("--hf-save-path", type=str)
     # parser.add_argument("--test-data-dir", type=str)
     parser.add_argument("--max_len", type=int, default=100)
     parser.add_argument("--epochs", type=int, default=1)
