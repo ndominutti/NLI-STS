@@ -1,5 +1,4 @@
 from datasets import load_from_disk
-import logging
 from transformers import AutoTokenizer, AutoModel
 import torch
 from torch.utils.data import DataLoader, RandomSampler
@@ -12,9 +11,7 @@ from transformers import get_scheduler, AdamW
 import os
 import argparse
 import sys
-import smdebug
-from smdebug.pytorch import Hook, SaveConfig
-from smdebug import modes
+import logging
 
 
 logger = logging.getLogger(__name__)
@@ -130,7 +127,7 @@ def validate(model, dataloader, val_dataloader, optimizer, device):
 
 
 
-def validation_step(model, dataloader, device, step, val_dataloader, optimizer)
+def validation_step(model, dataloader, device, step, val_dataloader, optimizer):
     dev_results = validate(model, dataloader, val_dataloader, optimizer, device)
     dev=dev_results
 
@@ -219,28 +216,17 @@ def train(args):
     logger.info("Model trained successfully")
 
 
-    logger.info("Removing unused checkpoints to save space in container")
-    os.system(f"rm -rf {args.model_dir}/checkpoint-*/")
-    with open(os.path.join(args.model_dir, 'model.pth'), 'wb') as f:
-        torch.save(model.state_dict(), f)
-
 
 if __name__ == '__main__':
-    print('\n'*10)
-    print('RUNNING')
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-name", type=str)
-    parser.add_argument("--train-data-dir", type=str, default=os.environ["SM_CHANNEL_TRAIN"])
-    parser.add_argument("--val-data-dir", type=str, default=os.environ["SM_CHANNEL_VALIDATION"])
-    # parser.add_argument("--test-data-dir", type=str,
-    #                    default=os.environ["SM_CHANNEL_TEST"])
+    parser.add_argument("--train-data-dir", type=str)
+    parser.add_argument("--val-data-dir", type=str)
+    # parser.add_argument("--test-data-dir", type=str)
     parser.add_argument("--max_len", type=int, default=100)
-    parser.add_argument("--model-dir", type=str, default=os.environ["SM_MODEL_DIR"])
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--step", type=int, default=0)
     parser.add_argument("--train-batch-size", type=int, default=16)
     parser.add_argument("--eval-batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=2e-5)
-    parser.add_argument("--log-dir", type=str, default=os.environ["SM_OUTPUT_DIR"])
-    parser.add_argument("--logging-strategy", type=str, default="epoch")
     train(parser.parse_args())
