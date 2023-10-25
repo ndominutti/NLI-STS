@@ -1,6 +1,7 @@
 from datasets import load_from_disk
 import torch
 from torch.nn.utils.rnn import pad_sequence
+import torch.nn as nn
 
 def tokenize(batch, tokenize_columun, tokenizer):
     """
@@ -52,3 +53,35 @@ def collate_batch(batch, collate_columns, tokenizer):
     second_input_att_mask = generate_attention_mask(second_input_ids, tokenizer)
 
     return first_input_ids, second_input_ids, torch.LongTensor([record['label'] for record in batch]), first_input_att_mask, second_input_att_mask
+
+
+class SBETOnli(nn.Module):
+    def __init__(self, base_model):
+        super().__init__()
+        self.base_model = base_model
+        self.fc = nn.Linear(768 * 3, 3)
+
+    def forward(self, sentenceA, sentenceB, att_A, att_B):
+        last_hidden_state_A = self.base_model(sentenceA)[0]
+        last_hidden_state_B = self.base_model(sentenceB)[0]
+        pooled_output_A = torch.mean(torch.matmul(att_A, last_hidden_state_A), dim=1)
+        pooled_output_B = torch.mean(torch.matmul(att_B, last_hidden_state_B), dim=1)
+        diff = torch.abs(pooled_output_A - pooled_output_B)
+        concatenated = torch.cat([pooled_output_A, pooled_output_B, diff], dim=1)
+        out = self.fc(concatenated)
+        return out
+
+class SBETOsts(nn.Module):
+    def __init__(self, base_model):
+        super().__init__()
+        self.base_model = base_model
+        self.cos = nn.CosineSimilarity(dim=1, eps=1e-6)
+
+    def forward(self, sentenceA, sentenceB, att_A, att_B):
+        last_hidden_state_A = self.base_model(sentenceA)[0]
+        last_hidden_state_B = self.base_model(sentenceB)[0]
+
+        pooled_output_A = torch.mean(torch.matmul(att_A, last_hidden_state_A), dim=1)
+        pooled_output_B = torch.mean(torch.matmul(att_B, last_hidden_state_B), dim=1)
+        out = self.cos(pooled_output_A, pooled_output_B)
+        return out
