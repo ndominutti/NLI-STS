@@ -5,6 +5,7 @@ from torch.utils.tensorboard import SummaryWriter
 from transformers import get_scheduler, AdamW
 from huggingface_hub import login
 from tqdm.auto import tqdm
+from typing import Dict
 from torch import optim
 import torch.nn as nn
 import auxiliars
@@ -22,26 +23,26 @@ logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-def collator(batch:):
+def collator(batch:torch.Tensor):
   """
   Wrapper function around auxiliars.collate_batch. 
   collator allow us to map the collate functionality to the dataset using the
   DataLoader class from torch
 
   Args:
-    batch(): data batch sent by the DataLoader class 
+    batch(torch.Tensor): data batch sent by the DataLoader class 
   """
   global tokenizer
   return auxiliars.collate_batch(batch, ['premise_ids', 'hypothesis_ids'], tokenizer)
 
 
-def get_predictions(batch:, model:, device:str) -> torch.tensor:
+def get_predictions(batch:torch.Tensor, model:nn.Module, device:str) -> torch.tensor:
   """
   Use the model to get predictions on the batch data
 
   Args:
-    batch(): data batch to be processed
-    model(): base model
+    batch(torch.Tensor): data batch to be processed
+    model(nn.Module): base model
     device(str): 'cuda' or 'cpu'
   
   Returns:
@@ -56,17 +57,17 @@ def get_predictions(batch:, model:, device:str) -> torch.tensor:
   return model(batch_prem, batch_hypo, batch_prem_att, batch_hypo_att)
 
 
-def validate(model:, val_dataloader:, device:str):
+def validate(model:nn.Module, val_dataloader:torch.utils.data.IterableDataset, device:str) -> Dict[str, Dict[str, float]]:
   """
   Run validation process on val data
 
   Args:
-    model(): base model to process the data and get predictions
-    val_dataloader(): dataloader containing the validation data
+    model(nn.Module): base model to process the data and get predictions
+    val_dataloader(torch.utils.data.IterableDataset): dataloader containing the validation data
     device(str): 'cuda' or 'cpu'
   
   Returns:
-    ...
+    Dict[str, Dict[str, float]]: sklearn's classification report
   """
   sum_loss = .0
   num_batches = 0
@@ -93,17 +94,17 @@ def validate(model:, val_dataloader:, device:str):
   return ret
 
 
-def validation_step(model:, val_dataloader:, device:str, step:int, writer:) -> None:
+def validation_step(model:nn.Module, val_dataloader:torch.utils.data.IterableDataset, device:str, step:int, writer:SummaryWriter) -> None:
   """
   Run a single validation step. Useful to use inside the training proces (at the end 
   of every epoch)
 
   Args:
-    model(): base model to process the data and get predictions
-    val_dataloader(): dataloader containing the validation data
+    model(nn.Module): base model to process the data and get predictions
+    val_dataloader(torch.utils.data.IterableDataset): dataloader containing the validation data
     device(str): 'cuda' or 'cpu'
     step(int): 
-    writer():
+    writer(SummaryWriter): tensorboard SummaryWriter
 
   Return:
     None
@@ -117,23 +118,23 @@ def validation_step(model:, val_dataloader:, device:str, step:int, writer:) -> N
   writer.add_scalar("dev/accuracy", dev_results["accuracy"], global_step=step)
 
 
-def _inner_train(model:, train_dataloader:, val_dataloader:, 
-                                  num_epochs:int, step:int, lr:float, writer:):
+def _inner_train(model:nn.Module, train_dataloader:torch.utils.data.IterableDataset, val_dataloader:torch.utils.data.IterableDataset, 
+                                  num_epochs:int, step:int, lr:float, writer:SummaryWriter) -> nn.Module:
   """
   Perform the main training process. Uses cuda device if it's available.
   Applies an optimizer linear scheduler. Uses cross_entropy as loss function.
   
   Args:
-    model(): base model to process the data and get predictions
-    train_dataloader(): dataloader containing the training data
-    val_dataloader(): dataloader containing the validation data
+    model(nn.Module): base model to process the data and get predictions
+    train_dataloader(torch.utils.data.IterableDataset): dataloader containing the training data
+    val_dataloader(torch.utils.data.IterableDataset): dataloader containing the validation data
     num_epochs(int): number of epochs to be ran
     step(int): step for the tensorboard writer
     lr(int): learning rate to be used
-    writer(): 
+    writer(SummaryWriter): tensorboard SummaryWriter
 
   Return:
-    model(): trained model 
+    model(nn.Module): trained model 
   """
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
   model = auxiliars.SBETOnli(model)
@@ -167,12 +168,12 @@ def _inner_train(model:, train_dataloader:, val_dataloader:,
   return model
 
 
-def save_model(model, hf_save_path) -> None:
+def save_model(model:nn.Module, hf_save_path:str) -> None:
   """
   Push models into hugging face hub
 
   Args:
-    model(): model to be pushed
+    model(nn.Module): model to be pushed
     hf_save_path(str): hugging face hub path
 
   Returns

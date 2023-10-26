@@ -1,5 +1,6 @@
 from torch.nn.utils.rnn import pad_sequence
 from datasets import load_from_disk
+from datasets import Dataset
 import torch.nn as nn
 import torch
 
@@ -25,7 +26,7 @@ def load_and_tokenize_dataset(
     data_dir:str,
     tokenize_columns:list,
     tokenizer
-) -> :
+) -> Dataset:
   """
   Mapping process to apply tokenizer to the whole dataset.
 
@@ -55,7 +56,7 @@ def load_and_tokenize_dataset(
   return tokenized_dataset
 
 
-def generate_attention_mask(tensor:torch.tensor, tokenizer:) -> torch.tensor:
+def generate_attention_mask(tensor:torch.tensor, tokenizer) -> torch.tensor:
   """
   Generate the attention mask using the values where the tensor
   is not a padding id.
@@ -71,7 +72,7 @@ def generate_attention_mask(tensor:torch.tensor, tokenizer:) -> torch.tensor:
   return attention_mask
 
 
-def collate_batch(batch:, collate_columns:, tokenizer:, sts:bool=False):
+def collate_batch(batch:torch.Tensor, collate_columns:list, tokenizer, sts:bool=False):
   """
   Collate and preprocess a batch of data for neural network input.
 
@@ -80,11 +81,11 @@ def collate_batch(batch:, collate_columns:, tokenizer:, sts:bool=False):
   designed to be used in combination with PyTorch's DataLoader.
 
   Args:
-    batch (): A batch of data, where each element is a dictionary containing the input
+    batch (torch.Tensor): A batch of data, where each element is a dictionary containing the input
                   sequences and other relevant information.
     collate_columns (list): A list of column names from the batch's dictionary, specifying
                             which columns contain the input sequences.
-    tokenizer(): A Hugging Face Transformers tokenizer used for tokenization.
+    tokenizer: A Hugging Face Transformers tokenizer used for tokenization.
     sts (bool): Whether the task is Semantic Textual Similarity (STS). Set to False if
                 an NLI training is being performed.
 
@@ -136,10 +137,10 @@ class SBETOnli(nn.Module):
   Sentence-BERT:SentenceEmbeddingsusingSiameseBERT-Networks.
   https://arxiv.org/abs/1908.10084
   """
-  def __init__(self, base_model):
+  def __init__(self, base_model:nn.Module):
     """
     Args:
-      base_model(): base pretrained transformer model to be used
+      base_model(nn.Module): base pretrained transformer model to be used
     """
     super().__init__()
     self.base_model = base_model
@@ -147,31 +148,31 @@ class SBETOnli(nn.Module):
 
   def forward(self, sentenceA:torch.Tensor, sentenceB:torch.Tensor,
                 att_A:torch.Tensor, att_B:torch.Tensor) -> torch.Tensor:
-  """
-  Perform the forward pass of the Sentence BERT model.
+    """
+    Perform the forward pass of the Sentence BERT model.
 
-  This method takes input sentences, their attention masks, and computes sentence embeddings
-  using the base model. It then calculates the difference and concatenation of the
-  pooled sentence embeddings, passes them through a fully connected layer, 
-  and returns the output (as a siamese network).
+    This method takes input sentences, their attention masks, and computes sentence embeddings
+    using the base model. It then calculates the difference and concatenation of the
+    pooled sentence embeddings, passes them through a fully connected layer, 
+    and returns the output (as a siamese network).
 
-  Args:
-    sentenceA (torch.Tensor): Input embeddings for sentence A.
-    sentenceB (torch.Tensor): Input embeddings for sentence B.
-    att_A (torch.Tensor): Attention weights for sentence A.
-    att_B (torch.Tensor): Attention weights for sentence B.
+    Args:
+      sentenceA (torch.Tensor): Input embeddings for sentence A.
+      sentenceB (torch.Tensor): Input embeddings for sentence B.
+      att_A (torch.Tensor): Attention weights for sentence A.
+      att_B (torch.Tensor): Attention weights for sentence B.
 
-  Returns:
-    torch.Tensor: Output tensor after processing through the Sentence BERT model.
-  """
-  last_hidden_state_A = self.base_model(sentenceA)[0]
-  last_hidden_state_B = self.base_model(sentenceB)[0]
-  pooled_output_A = torch.mean(torch.matmul(att_A, last_hidden_state_A), dim=1)
-  pooled_output_B = torch.mean(torch.matmul(att_B, last_hidden_state_B), dim=1)
-  diff = torch.abs(pooled_output_A - pooled_output_B)
-  concatenated = torch.cat([pooled_output_A, pooled_output_B, diff], dim=1)
-  out = self.fc(concatenated)
-  return out
+    Returns:
+      torch.Tensor: Output tensor after processing through the Sentence BERT model.
+    """
+    last_hidden_state_A = self.base_model(sentenceA)[0]
+    last_hidden_state_B = self.base_model(sentenceB)[0]
+    pooled_output_A = torch.mean(torch.matmul(att_A, last_hidden_state_A), dim=1)
+    pooled_output_B = torch.mean(torch.matmul(att_B, last_hidden_state_B), dim=1)
+    diff = torch.abs(pooled_output_A - pooled_output_B)
+    concatenated = torch.cat([pooled_output_A, pooled_output_B, diff], dim=1)
+    out = self.fc(concatenated)
+    return out
 
 
 class SBETOsts(nn.Module):
@@ -181,10 +182,10 @@ class SBETOsts(nn.Module):
   Sentence-BERT:SentenceEmbeddingsusingSiameseBERT-Networks.
   https://arxiv.org/abs/1908.10084
   """
-  def __init__(self, base_model):
+  def __init__(self, base_model:nn.Module):
     """
     Args:
-      base_model(): base pretrained transformer model to be used
+      base_model(nn.Module): base pretrained transformer model to be used
     """
     super().__init__()
     self.base_model = base_model

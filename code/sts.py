@@ -22,14 +22,14 @@ logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-def collator(batch:):
+def collator(batch:torch.Tensor):
   """
   Wrapper function around auxiliars.collate_batch. 
   collator allow us to map the collate functionality to the dataset using the
   DataLoader class from torch
 
   Args:
-    batch(): data batch sent by the DataLoader class 
+    batch(torch.Tensor): data batch sent by the DataLoader class 
   """
   global tokenizer
   return auxiliars.collate_batch(batch, ['sentence1_ids', 'sentence2_ids'], tokenizer, True)
@@ -93,16 +93,16 @@ def print_results(spearman_corr:list) -> None:
   print(df)
 
 
-def _comparisson(dataloader:, model_base:, model_finetuned:) -> None:
+def _comparisson(dataloader:torch.utils.data.IterableDataset, model_base:nn.Module, model_finetuned:nn.Module) -> None:
   """
   Perform the main comparisson process. Uses cuda device if it's available.
   Saves spearman correlation between the predictions and the ground truth values.
   Prints final spearman correlation score.
   
   Args:
-    dataloader(): dataloader containing the comparisson STS data
-    model_base(): base model to process the data and get predictions
-    model_finetuned(): finetuned model to process the data and get predictions
+    dataloader(torch.utils.data.IterableDataset): dataloader containing the comparisson STS data
+    model_base(nn.Module): base model to process the data and get predictions
+    model_finetuned(nn.Module): finetuned model to process the data and get predictions
 
   Returns:
     None
