@@ -41,7 +41,7 @@ def generate_attention_mask(tensor, tokenizer):
     return attention_mask
 
 
-def collate_batch(batch, collate_columns, tokenizer):
+def collate_batch(batch, collate_columns, tokenizer, sts:bool=False):
     first_input      = [torch.LongTensor(record[collate_columns[0]])\
                                               for record in batch]
     second_input = [torch.LongTensor(record[collate_columns[1]])\
@@ -51,9 +51,20 @@ def collate_batch(batch, collate_columns, tokenizer):
     #att masks
     first_input_att_mask = generate_attention_mask(first_input_ids, tokenizer)
     second_input_att_mask = generate_attention_mask(second_input_ids, tokenizer)
+    
+    if sts:
+      return ([example[collate_columns[0]] for example in batch],
+           [example[collate_columns[1]] for example in batch],
+           first_input_ids, second_input_ids, torch.tensor([example['similarity_score'] \
+                                                        for example in batch]),
+          first_input_att_mask,
+          second_input_att_mask)
 
-    return first_input_ids, second_input_ids, torch.LongTensor([record['label'] for record in batch]), first_input_att_mask, second_input_att_mask
-
+    return first_input_ids, second_input_ids, \
+            torch.LongTensor([record['label'] for record in batch]),\
+            first_input_att_mask, \
+            second_input_att_mask
+    
 
 class SBETOnli(nn.Module):
     def __init__(self, base_model):
@@ -70,6 +81,7 @@ class SBETOnli(nn.Module):
         concatenated = torch.cat([pooled_output_A, pooled_output_B, diff], dim=1)
         out = self.fc(concatenated)
         return out
+
 
 class SBETOsts(nn.Module):
     def __init__(self, base_model):

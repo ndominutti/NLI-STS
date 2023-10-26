@@ -1,20 +1,22 @@
-import auxiliars
-from transformers import AutoTokenizer, AutoModel
-import torch
 from torch.utils.data import DataLoader, RandomSampler
-import torch.nn as nn
+from transformers import AutoTokenizer, AutoModel
 from sklearn.metrics import classification_report
+from torch.utils.tensorboard import SummaryWriter
+from transformers import get_scheduler, AdamW
+from huggingface_hub import login
 from tqdm.auto import tqdm
 from torch import optim
-from transformers import get_scheduler, AdamW
-import os
+import torch.nn as nn
+import auxiliars
 import argparse
-import sys
 import logging
-from torch.utils.tensorboard import SummaryWriter
-from huggingface_hub import login
+import torch
+import sys
+import os
 
 
+
+#Set up logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler(sys.stdout))
@@ -22,6 +24,8 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 
 def collator(batch):
   """
+  Wrapper function around auxiliars.collate_batch. 
+  collator allow us to map the 
   """
   global tokenizer
   return auxiliars.collate_batch(batch, ['premise_ids', 'hypothesis_ids'], tokenizer)
@@ -130,7 +134,6 @@ def _inner_train(model, train_dataloader, val_dataloader, num_epochs, step, lr, 
 def save_model(model, hf_save_path):
   model.base_model.push_to_hub(hf_save_path)
 
-
 def train(args):
     logger.info("Login into HF...\n")
     login(args.hf_token)
@@ -139,6 +142,7 @@ def train(args):
     global model_name
     model_name = args.model_name
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.model_max_length = args.max_len
     logger.info("Loading pretrained model\n")
     model = AutoModel.from_pretrained(model_name)
     logger.info("Pretrained model loaded\n")
@@ -157,17 +161,10 @@ def train(args):
         tokenize_columns,
         tokenizer
     )
-    logger.info("Tokenizing data for eval loaded\n")
-    # logger.info("Fetching and tokenizing data for test")
-    # test_dataset = load_and_tokenize_dataset(
-    #     args.test_data_dir
-    # )
-    logger.info("Tokenizing data for test loaded\n")
 
     logger.info("Collating and padding")
     train_dataloader = DataLoader(train_dataset, batch_size=args.train_batch_size, collate_fn=collator, shuffle=True)
     val_dataloader = DataLoader(eval_dataset, batch_size=args.eval_batch_size, collate_fn=collator, shuffle=True)
-    # test_dataloader = DataLoader(test_dataset, batch_size=args.eval_batch_size, collate_fn=collate_columns, shuffle=True)
     logger.info("Collating and padding finished\n")
 
 
@@ -190,7 +187,7 @@ if __name__ == '__main__':
     parser.add_argument("--hf-token", type=str)
     parser.add_argument("--hf-save-path", type=str)
     # parser.add_argument("--test-data-dir", type=str)
-    parser.add_argument("--max_len", type=int, default=100)
+    parser.add_argument("--max-len", type=int, default=100)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--step", type=int, default=0)
     parser.add_argument("--train-batch-size", type=int, default=16)
