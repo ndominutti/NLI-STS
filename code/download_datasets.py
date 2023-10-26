@@ -2,14 +2,26 @@ from datasets import load_dataset
 import argparse
 
 
-def download_nli(data_path):
+def download_nli(data_path:str):
+  """
+  Load datasets from Hugging Face and save them to disk
+
+  Args:
+    data_path(str): HF path to the XNLI dataset
+  """
   train = load_dataset("xnli", "es", split='train')
   val   = load_dataset("xnli", "es", split='validation')
 
   train.save_to_disk(f'{data_path}/nli/train') 
   val.save_to_disk(f'{data_path}/nli/eval')
 
-def download_sts(data_path):
+def download_sts(data_path:str):
+    """
+    Load datasets from Hugging Face and save them to disk
+
+    Args:
+      data_path(str): HF path to the stsb_multi_mt dataset
+    """
     test = load_dataset("stsb_multi_mt", "es", split='test')
     test.save_to_disk(f'{data_path}/sts')
 
