@@ -60,7 +60,7 @@ def validate(
     model: nn.Module, val_dataloader: torch.utils.data.IterableDataset, device: str
 ) -> Dict[str, Dict[str, float]]:
     """
-    Run validation process on val data
+    Run validation process on val data.
 
     Args:
       model(nn.Module): base model to process the data and get predictions
